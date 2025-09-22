@@ -82,7 +82,7 @@ jobs:
         run: |
           set -euo pipefail
 
-          VERSION=$(python3 -c "import json; print(json.load(open('package.json'))['version'])")
+          VERSION=$(python3 -c "import json; print(json.load(open('package.json', encoding='utf-8'))['version'])")
           PKG_NAME="${{ matrix.platform.npm_package }}"
           PKG_DIR="npm-package-${{ matrix.platform.name }}"
           rm -rf "$PKG_DIR"
