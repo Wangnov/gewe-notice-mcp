@@ -1,0 +1,56 @@
+{
+  "name": "gewe-notice-mcp",
+  "version": "0.0.1",
+  "description": "一个轻量级的 MCP 服务器，用于通过gewe微信机器人发送 AI 任务状态通知",
+  "main": "index.js",
+  "bin": {
+    "gewe-notice-mcp": "./bin/gewe-notice-mcp"
+  },
+  "scripts": {
+    "postinstall": "node scripts/install.js",
+    "build": "cargo build --release",
+    "test": "cargo test"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/wangnov/gewe-notice-mcp.git"
+  },
+  "keywords": [
+    "mcp",
+    "ai",
+    "notification",
+    "gewe",
+    "wechat",
+    "rust"
+  ],
+  "author": "wangnov",
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/wangnov/gewe-notice-mcp/issues"
+  },
+  "homepage": "https://github.com/wangnov/gewe-notice-mcp#readme",
+  "files": [
+    "bin/",
+    "scripts/",
+    "index.js",
+    "README.md"
+  ],
+  "engines": {
+    "node": ">=14.0.0"
+  },
+  "os": [
+    "darwin",
+    "linux",
+    "win32"
+  ],
+  "cpu": [
+    "x64",
+    "arm64"
+  ],
+  "optionalDependencies": {
+    "@gewe-notice-mcp/darwin-x64": "0.0.1",
+    "@gewe-notice-mcp/darwin-arm64": "0.0.1",
+    "@gewe-notice-mcp/linux-x64": "0.0.1",
+    "@gewe-notice-mcp/win32-x64": "0.0.1"
+  }
+}
