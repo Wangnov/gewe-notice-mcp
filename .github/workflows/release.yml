@@ -129,7 +129,7 @@ jobs:
       - name: Upload package artifact
         uses: actions/upload-artifact@v4
         with:
-          name: npm-packages
+          name: npm-package-${{ matrix.platform.name }}
           path: dist/gewe-notice-mcp-${{ matrix.platform.name }}.tgz
           if-no-files-found: error
 
@@ -155,8 +155,9 @@ jobs:
       - name: Download build artifacts
         uses: actions/download-artifact@v4
         with:
-          name: npm-packages
+          pattern: npm-package-*
           path: npm-packages
+          merge-multiple: true
 
       - name: Publish platform packages
         env:
@@ -197,8 +198,9 @@ jobs:
       - name: Download build artifacts
         uses: actions/download-artifact@v4
         with:
-          name: npm-packages
+          pattern: npm-package-*
           path: npm-packages
+          merge-multiple: true
 
       - name: Create Release
         uses: softprops/action-gh-release@v1
