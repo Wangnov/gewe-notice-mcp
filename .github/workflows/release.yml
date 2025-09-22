@@ -41,25 +41,25 @@ jobs:
           - name: darwin-x64
             os: macos-13
             target: x86_64-apple-darwin
-            npm_package: '@gewe-notice-mcp/darwin-x64'
+            npm_package: 'gewe-notice-mcp-darwin-x64'
             node_os: darwin
             node_cpu: x64
           - name: darwin-arm64
             os: macos-14
             target: aarch64-apple-darwin
-            npm_package: '@gewe-notice-mcp/darwin-arm64'
+            npm_package: 'gewe-notice-mcp-darwin-arm64'
             node_os: darwin
             node_cpu: arm64
           - name: linux-x64
             os: ubuntu-latest
             target: x86_64-unknown-linux-musl
-            npm_package: '@gewe-notice-mcp/linux-x64'
+            npm_package: 'gewe-notice-mcp-linux-x64'
             node_os: linux
             node_cpu: x64
           - name: win32-x64
             os: windows-latest
             target: x86_64-pc-windows-msvc
-            npm_package: '@gewe-notice-mcp/win32-x64'
+            npm_package: 'gewe-notice-mcp-win32-x64'
             node_os: win32
             node_cpu: x64
     steps:

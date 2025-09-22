@@ -42,7 +42,7 @@ function installBinary() {
     fs.mkdirSync(binDir, { recursive: true });
   }
 
-  const packageName = `@gewe-notice-mcp/${platform}`;
+  const packageName = `gewe-notice-mcp-${platform}`;
 
   try {
     const packageDir = path.dirname(require.resolve(`${packageName}/package.json`));

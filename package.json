@@ -53,9 +53,9 @@
     "arm64"
   ],
   "optionalDependencies": {
-    "@gewe-notice-mcp/darwin-x64": "0.0.1",
-    "@gewe-notice-mcp/darwin-arm64": "0.0.1",
-    "@gewe-notice-mcp/linux-x64": "0.0.1",
-    "@gewe-notice-mcp/win32-x64": "0.0.1"
+    "gewe-notice-mcp-darwin-x64": "0.0.1",
+    "gewe-notice-mcp-darwin-arm64": "0.0.1",
+    "gewe-notice-mcp-linux-x64": "0.0.1",
+    "gewe-notice-mcp-win32-x64": "0.0.1"
   }
 }
