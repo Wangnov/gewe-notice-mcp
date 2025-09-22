@@ -279,13 +279,13 @@ impl GeweApiClient {
 
         let should_retry_at_all = self.config.is_chatroom()
             && is_at_all
-            && response_data.as_ref().map_or(false, |data| {
+            && response_data.as_ref().is_some_and(|data| {
                 data.ret == 500
                     && data
                         .data
                         .as_ref()
                         .and_then(|d| d.code.as_ref())
-                        .map_or(false, |code| code == "-2")
+                        .is_some_and(|code| code == "-2")
             });
 
         if should_retry_at_all {

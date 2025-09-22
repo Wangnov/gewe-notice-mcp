@@ -324,7 +324,7 @@ impl ServerHandler for GeweNoticeServer {
     ) -> Result<CallToolResult, ErrorData> {
         match request.name.as_ref() {
             "post_text" => {
-                let arguments = request.arguments.unwrap_or_else(|| serde_json::Map::new());
+                let arguments = request.arguments.unwrap_or_default();
                 self.handle_post_text(serde_json::Value::Object(arguments))
                     .await
             }
