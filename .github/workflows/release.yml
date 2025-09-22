@@ -1,0 +1,228 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  checks:
+    name: Lint & Test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cargo fmt
+        run: cargo fmt --all -- --check
+
+      - name: Cargo clippy
+        run: cargo clippy --all-targets --all-features -- -D warnings
+
+      - name: Cargo test
+        run: cargo test --all --all-features
+
+  build:
+    name: Build - ${{ matrix.platform.name }}
+    needs: checks
+    runs-on: ${{ matrix.platform.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        platform:
+          - name: darwin-x64
+            os: macos-13
+            target: x86_64-apple-darwin
+            npm_package: '@gewe-notice-mcp/darwin-x64'
+            node_os: darwin
+            node_cpu: x64
+          - name: darwin-arm64
+            os: macos-14
+            target: aarch64-apple-darwin
+            npm_package: '@gewe-notice-mcp/darwin-arm64'
+            node_os: darwin
+            node_cpu: arm64
+          - name: linux-x64
+            os: ubuntu-latest
+            target: x86_64-unknown-linux-musl
+            npm_package: '@gewe-notice-mcp/linux-x64'
+            node_os: linux
+            node_cpu: x64
+          - name: win32-x64
+            os: windows-latest
+            target: x86_64-pc-windows-msvc
+            npm_package: '@gewe-notice-mcp/win32-x64'
+            node_os: win32
+            node_cpu: x64
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.platform.target }}
+
+      - name: Install musl toolchain
+        if: matrix.platform.target == 'x86_64-unknown-linux-musl'
+        run: sudo apt-get update && sudo apt-get install -y musl-tools
+
+      - name: Build binary
+        run: cargo build --release --target ${{ matrix.platform.target }}
+
+      - name: Package npm binary
+        run: |
+          set -euo pipefail
+
+          VERSION=$(python3 - <<'PY'
+import json
+print(json.load(open('package.json'))['version'])
+PY
+)
+          PKG_NAME="${{ matrix.platform.npm_package }}"
+          PKG_DIR="npm-package-${{ matrix.platform.name }}"
+          rm -rf "$PKG_DIR"
+          mkdir "$PKG_DIR"
+
+          if [ "${{ matrix.platform.os }}" = "windows-latest" ]; then
+            BINARY_FILE="gewe-notice-mcp.exe"
+            cp "target/${{ matrix.platform.target }}/release/gewe-notice-mcp.exe" "$PKG_DIR/$BINARY_FILE"
+          else
+            BINARY_FILE="gewe-notice-mcp"
+            cp "target/${{ matrix.platform.target }}/release/gewe-notice-mcp" "$PKG_DIR/$BINARY_FILE"
+            chmod +x "$PKG_DIR/$BINARY_FILE"
+          fi
+
+          cat > "$PKG_DIR/package.json" <<PKGJSON
+{
+  "name": "$PKG_NAME",
+  "version": "$VERSION",
+  "description": "Prebuilt gewe-notice-mcp binary for ${{ matrix.platform.name }}",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/wangnov/gewe-notice-mcp.git"
+  },
+  "os": ["${{ matrix.platform.node_os }}"],
+  "cpu": ["${{ matrix.platform.node_cpu }}"],
+  "files": [
+    "$BINARY_FILE"
+  ],
+  "bin": {
+    "gewe-notice-mcp": "./$BINARY_FILE"
+  }
+}
+PKGJSON
+
+          if [ -f LICENSE ]; then
+            cp LICENSE "$PKG_DIR/"
+          fi
+
+          ARCHIVE="gewe-notice-mcp-${{ matrix.platform.name }}.tgz"
+          tar -C "$PKG_DIR" -czf "$ARCHIVE" .
+          mkdir -p dist
+          mv "$ARCHIVE" dist/
+          rm -rf "$PKG_DIR"
+
+      - name: Upload package artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: npm-packages
+          path: dist/gewe-notice-mcp-${{ matrix.platform.name }}.tgz
+          if-no-files-found: error
+
+  publish:
+    name: Publish to npm
+    needs: build
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/')
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 18
+          registry-url: https://registry.npmjs.org
+
+      - name: Validate optional dependency versions
+        run: |
+          node <<'NODE'
+const pkg = require('./package.json');
+const expected = pkg.version;
+const mismatches = Object.entries(pkg.optionalDependencies || {}).filter(([_, version]) => version !== expected);
+if (mismatches.length) {
+  console.error('optionalDependencies 版本必须与主包一致:');
+  for (const [name, version] of mismatches) {
+    console.error(`  ${name}: ${version} (expected ${expected})`);
+  }
+  process.exit(1);
+}
+NODE
+
+      - name: Download build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: npm-packages
+          path: npm-packages
+
+      - name: Publish platform packages
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          set -euo pipefail
+          npm config set //registry.npmjs.org/:_authToken "$NODE_AUTH_TOKEN"
+          for archive in npm-packages/*.tgz; do
+            pkg_dir=$(mktemp -d)
+            tar -xzf "$archive" -C "$pkg_dir"
+            pushd "$pkg_dir" >/dev/null
+            npm publish --access public
+            popd >/dev/null
+            rm -rf "$pkg_dir"
+          done
+
+      - name: Publish main package
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          set -euo pipefail
+          npm config set //registry.npmjs.org/:_authToken "$NODE_AUTH_TOKEN"
+          npm publish --access public
+
+      - name: Smoke test via npx
+        run: |
+          npx --yes gewe-notice-mcp --version
+
+  release:
+    name: Create GitHub Release
+    needs: publish
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/')
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Download build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: npm-packages
+          path: npm-packages
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v1
+        with:
+          files: npm-packages/*.tgz
+          draft: false
+          prerelease: false
+          generate_release_notes: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
