@@ -82,11 +82,7 @@ jobs:
         run: |
           set -euo pipefail
 
-          VERSION=$(python3 - <<'PY'
-import json
-print(json.load(open('package.json'))['version'])
-PY
-)
+          VERSION=$(python3 -c "import json; print(json.load(open('package.json'))['version'])")
           PKG_NAME="${{ matrix.platform.npm_package }}"
           PKG_DIR="npm-package-${{ matrix.platform.name }}"
           rm -rf "$PKG_DIR"
@@ -101,26 +97,24 @@ PY
             chmod +x "$PKG_DIR/$BINARY_FILE"
           fi
 
-          cat > "$PKG_DIR/package.json" <<PKGJSON
-{
-  "name": "$PKG_NAME",
-  "version": "$VERSION",
-  "description": "Prebuilt gewe-notice-mcp binary for ${{ matrix.platform.name }}",
-  "license": "MIT",
-  "repository": {
-    "type": "git",
-    "url": "git+https://github.com/wangnov/gewe-notice-mcp.git"
-  },
-  "os": ["${{ matrix.platform.node_os }}"],
-  "cpu": ["${{ matrix.platform.node_cpu }}"],
-  "files": [
-    "$BINARY_FILE"
-  ],
-  "bin": {
-    "gewe-notice-mcp": "./$BINARY_FILE"
-  }
-}
-PKGJSON
+          echo '{' > "$PKG_DIR/package.json"
+          echo '  "name": "'"$PKG_NAME"'",' >> "$PKG_DIR/package.json"
+          echo '  "version": "'"$VERSION"'",' >> "$PKG_DIR/package.json"
+          echo '  "description": "Prebuilt gewe-notice-mcp binary for ${{ matrix.platform.name }}",' >> "$PKG_DIR/package.json"
+          echo '  "license": "MIT",' >> "$PKG_DIR/package.json"
+          echo '  "repository": {' >> "$PKG_DIR/package.json"
+          echo '    "type": "git",' >> "$PKG_DIR/package.json"
+          echo '    "url": "git+https://github.com/wangnov/gewe-notice-mcp.git"' >> "$PKG_DIR/package.json"
+          echo '  },' >> "$PKG_DIR/package.json"
+          echo '  "os": ["${{ matrix.platform.node_os }}"],' >> "$PKG_DIR/package.json"
+          echo '  "cpu": ["${{ matrix.platform.node_cpu }}"],' >> "$PKG_DIR/package.json"
+          echo '  "files": [' >> "$PKG_DIR/package.json"
+          echo '    "'"$BINARY_FILE"'"' >> "$PKG_DIR/package.json"
+          echo '  ],' >> "$PKG_DIR/package.json"
+          echo '  "bin": {' >> "$PKG_DIR/package.json"
+          echo '    "gewe-notice-mcp": "./'"$BINARY_FILE"'"' >> "$PKG_DIR/package.json"
+          echo '  }' >> "$PKG_DIR/package.json"
+          echo '}' >> "$PKG_DIR/package.json"
 
           if [ -f LICENSE ]; then
             cp LICENSE "$PKG_DIR/"
@@ -156,18 +150,7 @@ PKGJSON
 
       - name: Validate optional dependency versions
         run: |
-          node <<'NODE'
-const pkg = require('./package.json');
-const expected = pkg.version;
-const mismatches = Object.entries(pkg.optionalDependencies || {}).filter(([_, version]) => version !== expected);
-if (mismatches.length) {
-  console.error('optionalDependencies 版本必须与主包一致:');
-  for (const [name, version] of mismatches) {
-    console.error(`  ${name}: ${version} (expected ${expected})`);
-  }
-  process.exit(1);
-}
-NODE
+          node -e "const pkg = require('./package.json'); const expected = pkg.version; const mismatches = Object.entries(pkg.optionalDependencies || {}).filter(([_, version]) => version !== expected); if (mismatches.length) { console.error('optionalDependencies 版本必须与主包一致:'); for (const [name, version] of mismatches) { console.error(\`  \${name}: \${version} (expected \${expected})\`); } process.exit(1); }"
 
       - name: Download build artifacts
         uses: actions/download-artifact@v4
