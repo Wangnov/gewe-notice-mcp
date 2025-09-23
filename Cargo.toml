@@ -1,6 +1,6 @@
 [package]
 name = "gewe-notice-mcp"
-version = "0.0.1"
+version = "0.0.2"
 edition = "2021"
 authors = ["wangnov"]
 description = "一个轻量级的 MCP 服务器，用于通过gewe微信机器人发送 AI 任务状态通知。"
