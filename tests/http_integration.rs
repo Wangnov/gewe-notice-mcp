@@ -6,8 +6,8 @@ use reqwest::StatusCode;
 use serde_json::json;
 use tokio::sync::Mutex;
 
-use gewe_notice_mcp::config::Config;
-use gewe_notice_mcp::errors::GeweNoticeError;
+use gewe_notice_mcp::config::{AppId, Config, ValidatedToken, WxId};
+use gewe_notice_mcp::errors::{ApiBusinessError, ApiErrorCode, GeweNoticeError};
 use gewe_notice_mcp::gewe_api::GeweApiClient;
 
 static INIT_TRACING: Lazy<()> = Lazy::new(|| {
@@ -42,12 +42,25 @@ impl Drop for MockServer {
 }
 
 fn base_config(base_url: String, at_list: Option<Vec<String>>) -> Config {
+    let at_list_wxids = at_list.map(|list| {
+        list.into_iter()
+            .map(|s| {
+                let trimmed = s.trim().to_string();
+                if trimmed.eq_ignore_ascii_case("all") {
+                    WxId::new("all".to_string()).expect("valid wxid")
+                } else {
+                    WxId::new(trimmed).expect("valid wxid")
+                }
+            })
+            .collect()
+    });
+
     Config {
         base_url,
-        token: "00000000-0000-0000-0000-000000000000".into(),
-        app_id: "wx_test_app".into(),
-        wxid: "wxid_target@chatroom".into(),
-        at_list,
+        token: ValidatedToken::new("00000000-0000-0000-0000-000000000000").expect("valid UUID"),
+        app_id: AppId::new("wx_test_app".to_string()).expect("valid app_id"),
+        wxid: WxId::new("wxid_target@chatroom".to_string()).expect("valid wxid"),
+        at_list: at_list_wxids,
     }
 }
 
@@ -99,7 +112,10 @@ async fn check_online_handles_false_data() {
 
     with_client(route, None, |client| async move {
         let err = client.check_online().await.expect_err("offline");
-        assert!(matches!(err, GeweNoticeError::BotOffline));
+        assert!(matches!(
+            err,
+            GeweNoticeError::Business(ApiBusinessError::BotOffline)
+        ));
     })
     .await;
 }
@@ -119,7 +135,7 @@ async fn check_online_propagates_api_error() {
 
     with_client(route, None, |client| async move {
         match client.check_online().await.expect_err("api error") {
-            GeweNoticeError::ApiError { code, message } => {
+            GeweNoticeError::Business(ApiBusinessError::UnknownError { code, message }) => {
                 assert_eq!(code, 500);
                 assert_eq!(message, "服务器内部错误");
             }
@@ -301,9 +317,8 @@ async fn post_text_propagates_api_failure() {
 
     with_client(routes, None, |client| async move {
         match client.post_text("任务失败").await.expect_err("api error") {
-            GeweNoticeError::ApiError { code, message } => {
-                assert_eq!(code, 500);
-                assert_eq!(message, "该群聊不存在");
+            GeweNoticeError::Business(ApiBusinessError::KnownError { code }) => {
+                assert_eq!(code, ApiErrorCode::ChatroomMissing);
             }
             other => panic!("unexpected error {other:?}"),
         }
@@ -326,8 +341,8 @@ async fn post_text_non_json_response_surfaces_parser_error() {
             .await
             .expect_err("non-json should fail")
         {
-            GeweNoticeError::JsonError(err) => {
-                assert!(err.is_syntax(), "解析错误应被标记为语法错误: {err}");
+            GeweNoticeError::Json(err) => {
+                assert!(err.contains("expected value"), "解析错误信息: {err}");
             }
             other => panic!("unexpected error {other:?}"),
         }
@@ -379,9 +394,8 @@ async fn post_text_member_lookup_failure_skips_mentions() {
         |client| async move {
             INVOCATIONS.lock().await.clear();
             match client.post_text("尝试@缺失成员").await {
-                Err(GeweNoticeError::ApiError { code, message }) => {
-                    assert_eq!(code, 500);
-                    assert_eq!(message, "获取群成员列表异常:null");
+                Err(GeweNoticeError::Business(ApiBusinessError::KnownError { code })) => {
+                    assert_eq!(code, ApiErrorCode::NotInGroup);
                 }
                 Ok(_) => panic!("expected member lookup failure to surface"),
                 Err(other) => panic!("unexpected error {other:?}"),

@@ -341,11 +341,13 @@ mod tests {
     use serde_json::Value;
 
     fn test_config() -> Config {
+        use crate::config::{AppId, ValidatedToken, WxId};
+
         Config {
             base_url: "http://example.com".into(),
-            token: "00000000-0000-0000-0000-000000000000".into(),
-            app_id: "wx_test".into(),
-            wxid: "wxid_test".into(),
+            token: ValidatedToken::new("00000000-0000-0000-0000-000000000000").expect("valid UUID"),
+            app_id: AppId::new("wx_test".to_string()).expect("valid app_id"),
+            wxid: WxId::new("wxid_test".to_string()).expect("valid wxid"),
             at_list: None,
         }
     }

@@ -1,4 +1,3 @@
-use clap::Parser;
 use rmcp::{
     service::{serve_server, QuitReason},
     transport::stdio,
@@ -22,13 +21,14 @@ async fn main() -> anyhow::Result<()> {
 
     info!("Starting gewe-notice-mcp MCP 服务器...");
 
-    let config = Config::parse();
-
-    if let Err(e) = config.validate() {
-        error!("配置错误: {}", e);
-        error!("请检查您的 MCP 配置文件中的环境变量。");
-        std::process::exit(1);
-    }
+    let config = match Config::parse() {
+        Ok(cfg) => cfg,
+        Err(e) => {
+            error!("配置错误: {}", e);
+            error!("请检查您的 MCP 配置文件中的环境变量。");
+            std::process::exit(1);
+        }
+    };
 
     let api_client = match GeweApiClient::new(config.clone()) {
         Ok(client) => client,
@@ -42,23 +42,23 @@ async fn main() -> anyhow::Result<()> {
 
     info!("配置加载成功 (来自环境变量):");
     info!("   - Base URL: {}", config.base_url);
-    info!("   - Token:    {}", config.redact(&config.token, 2, 2));
-    info!("   - App ID:   {}", config.redact(&config.app_id, 3, 4));
-    info!("   - WXID:     {}", config.redact(&config.wxid, 2, 2));
-    match config.normalized_at_list() {
-        Some(at_list) => {
-            if at_list.len() == 1 && at_list[0] == "all" {
-                info!("   - At List:  all");
-            } else {
-                let redacted_list: Vec<String> =
-                    at_list.iter().map(|at| config.redact(at, 2, 2)).collect();
-                info!("   - At List:  {:?}", redacted_list);
-            }
+    info!(
+        "   - Token:    {}",
+        config.redact(&config.token_str(), 2, 2)
+    );
+    info!(
+        "   - App ID:   {}",
+        config.redact(config.app_id_str(), 3, 4)
+    );
+    info!("   - WXID:     {}", config.redact(config.wxid_str(), 2, 2));
+    if let Some(at_list) = config.normalized_at_list() {
+        if at_list.len() == 1 && at_list[0] == "all" {
+            info!("   - At List:  all");
+        } else {
+            let redacted_list: Vec<String> =
+                at_list.iter().map(|at| config.redact(at, 2, 2)).collect();
+            info!("   - At List:  {:?}", redacted_list);
         }
-        None if config.at_list.is_some() => {
-            info!("   - At List:  []");
-        }
-        None => {}
     }
     info!("{}", "-".repeat(20));
 
