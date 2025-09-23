@@ -207,7 +207,7 @@ GEWE_NOTICE_WXID=wxid_xxx \
 GEWE_NOTICE_TOKEN=... \
 GEWE_NOTICE_APP_ID=wx_xxx \
 GEWE_NOTICE_WXID=wxid_xxx \
-npx -y gewe-notice
+npx -y gewe-notice-mcp
 ```
 
 ---
@@ -342,7 +342,7 @@ npx -y gewe-notice
   "mcpServers": {
     "gewe-notice": {
       "command": "npx",
-      "args": ["-y", "gewe-notice"],
+      "args": ["-y", "gewe-notice-mcp"],
       "env": {
         "GEWE_NOTICE_BASE_URL": "https://www.geweapi.com",
         "GEWE_NOTICE_TOKEN": "YOUR_TOKEN",
@@ -377,7 +377,7 @@ env = {
 ```toml
 [mcp_servers.gewe_notice]
 command = "npx"
-args = ["-y", "gewe-notice"]
+args = ["-y", "gewe-notice-mcp"]
 env = {
   GEWE_NOTICE_BASE_URL = "https://www.geweapi.com",
   GEWE_NOTICE_TOKEN = "YOUR_TOKEN",
@@ -394,7 +394,7 @@ env = {
 [mcp_servers.gewe_notice]
 command = "C:\\Program Files\\nodejs\\node.exe"
 args = [
-  "C:\\Users\\yourname\\AppData\\Roaming\\npm\\node_modules\\gewe-notice\\dist\\index.js",
+  "C:\\Users\\yourname\\AppData\\Roaming\\npm\\node_modules\\gewe-notice-mcp\\dist\\index.js",
   "--transport",
   "stdio"
 ]
@@ -409,7 +409,7 @@ args = [
   "/c",
   "npx",
   "-y",
-  "gewe-notice"
+  "gewe-notice-mcp"
 ]
 env = { SystemRoot = "C:\\Windows" }
 startup_timeout_ms = 20_000
@@ -435,7 +435,7 @@ claude mcp add gewe-notice -- /path/to/gewe-notice-mcp \
 #### npx 兼容
 
 ```bash
-claude mcp add gewe-notice -- npx -y gewe-notice \
+claude mcp add gewe-notice -- npx -y gewe-notice-mcp \
   --env GEWE_NOTICE_BASE_URL=https://www.geweapi.com \
   --env GEWE_NOTICE_TOKEN=YOUR_TOKEN \
   --env GEWE_NOTICE_APP_ID=wx_xxx \
@@ -476,7 +476,7 @@ claude mcp add gewe-notice -- npx -y gewe-notice \
     "gewe-notice": {
       "type": "stdio",
       "command": "npx",
-      "args": ["-y", "gewe-notice"],
+      "args": ["-y", "gewe-notice-mcp"],
       "env": {
         "GEWE_NOTICE_BASE_URL": "https://www.geweapi.com",
         "GEWE_NOTICE_TOKEN": "YOUR_TOKEN",
