@@ -56,30 +56,108 @@
 
 ### 方式一：下载预构建二进制（推荐）
 
-1. 前往 [Releases](https://github.com/wangnov/gewe-notice-mcp/releases) 页面，选择对应平台的压缩包：
-   - `gewe-notice-mcp-macos-universal.tar.gz`
-   - `gewe-notice-mcp-linux-x86_64.tar.gz`
-   - `gewe-notice-mcp-linux-aarch64.tar.gz`
-   - `gewe-notice-mcp-windows-x86_64.zip`
-2. 解压并将可执行文件放入任意目录（建议加入 `PATH`）。
+选择适合您系统的版本：
 
-示例：
+<details>
+<summary><b>🍎 macOS (Apple Silicon M1/M2/M3)</b></summary>
 
 ```bash
-# macOS / Linux
-curl -L -o gewe-notice-mcp.tar.gz \
-  https://github.com/wangnov/gewe-notice-mcp/releases/latest/download/gewe-notice-mcp-macos-universal.tar.gz
-tar -xzf gewe-notice-mcp.tar.gz
+# 下载 ARM64 版本
+curl -L -o gewe-notice-mcp.tgz \
+  https://github.com/wangnov/gewe-notice-mcp/releases/latest/download/gewe-notice-mcp-darwin-arm64.tgz
+
+# 解压文件
+tar -xzf gewe-notice-mcp.tgz
+
+# 添加执行权限
 chmod +x gewe-notice-mcp
-mv gewe-notice-mcp ~/bin/
+
+# 移动到 PATH 目录（可选）
+sudo mv gewe-notice-mcp /usr/local/bin/
+
+# 验证安装
+gewe-notice-mcp --version
+```
+</details>
+
+<details>
+<summary><b>🍎 macOS (Intel)</b></summary>
+
+```bash
+# 下载 x64 版本
+curl -L -o gewe-notice-mcp.tgz \
+  https://github.com/wangnov/gewe-notice-mcp/releases/latest/download/gewe-notice-mcp-darwin-x64.tgz
+
+# 解压文件
+tar -xzf gewe-notice-mcp.tgz
+
+# 添加执行权限
+chmod +x gewe-notice-mcp
+
+# 移动到 PATH 目录（可选）
+sudo mv gewe-notice-mcp /usr/local/bin/
+
+# 验证安装
+gewe-notice-mcp --version
+```
+</details>
+
+<details>
+<summary><b>🐧 Linux (x64)</b></summary>
+
+```bash
+# 下载 Linux x64 版本
+curl -L -o gewe-notice-mcp.tgz \
+  https://github.com/wangnov/gewe-notice-mcp/releases/latest/download/gewe-notice-mcp-linux-x64.tgz
+
+# 解压文件
+tar -xzf gewe-notice-mcp.tgz
+
+# 添加执行权限
+chmod +x gewe-notice-mcp
+
+# 移动到 PATH 目录（可选）
+sudo mv gewe-notice-mcp /usr/local/bin/
+
+# 验证安装
+gewe-notice-mcp --version
+```
+</details>
+
+<details>
+<summary><b>🪟 Windows (x64)</b></summary>
+
+**PowerShell：**
+```powershell
+# 下载 Windows x64 版本
+Invoke-WebRequest -Uri "https://github.com/wangnov/gewe-notice-mcp/releases/latest/download/gewe-notice-mcp-win32-x64.tgz" -OutFile gewe-notice-mcp.tgz
+
+# 使用 tar 解压（Windows 10+ 内置）
+tar -xzf gewe-notice-mcp.tgz
+
+# 移动到合适的目录
+New-Item -ItemType Directory -Force -Path "C:\Program Files\gewe-notice-mcp"
+Move-Item -Force gewe-notice-mcp.exe "C:\Program Files\gewe-notice-mcp\"
+
+# 添加到 PATH（需要管理员权限）
+[Environment]::SetEnvironmentVariable("Path", $env:Path + ";C:\Program Files\gewe-notice-mcp", [EnvironmentVariableTarget]::Machine)
+
+# 验证安装（新开一个终端）
+gewe-notice-mcp --version
 ```
 
-```powershell
-# Windows PowerShell
-Invoke-WebRequest -Uri https://github.com/wangnov/gewe-notice-mcp/releases/latest/download/gewe-notice-mcp-windows-x86_64.zip -OutFile gewe-notice-mcp.zip
-Expand-Archive gewe-notice-mcp.zip -DestinationPath C:\Tools\gewe-notice-mcp
-C:\Tools\gewe-notice-mcp\gewe-notice-mcp.exe --help
+**命令提示符 (CMD)：**
+```batch
+:: 下载 Windows x64 版本
+curl -L -o gewe-notice-mcp.tgz https://github.com/wangnov/gewe-notice-mcp/releases/latest/download/gewe-notice-mcp-win32-x64.tgz
+
+:: 解压文件
+tar -xzf gewe-notice-mcp.tgz
+
+:: 验证安装
+gewe-notice-mcp.exe --version
 ```
+</details>
 
 ### 方式二：兼容 npx
 
