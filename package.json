@@ -1,6 +1,6 @@
 {
   "name": "gewe-notice-mcp",
-  "version": "0.0.2",
+  "version": "0.0.3",
   "description": "一个轻量级的 MCP 服务器，用于通过gewe微信机器人发送 AI 任务状态通知",
   "main": "index.js",
   "bin": {
@@ -59,9 +59,9 @@
     "arm64"
   ],
   "optionalDependencies": {
-    "gewe-notice-mcp-darwin-x64": "0.0.2",
-    "gewe-notice-mcp-darwin-arm64": "0.0.2",
-    "gewe-notice-mcp-linux-x64": "0.0.2",
-    "gewe-notice-mcp-win32-x64": "0.0.2"
+    "gewe-notice-mcp-darwin-x64": "0.0.3",
+    "gewe-notice-mcp-darwin-arm64": "0.0.3",
+    "gewe-notice-mcp-linux-x64": "0.0.3",
+    "gewe-notice-mcp-win32-x64": "0.0.3"
   }
 }
