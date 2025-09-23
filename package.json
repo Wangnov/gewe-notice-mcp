@@ -14,7 +14,14 @@
     "fmt": "cargo fmt --all",
     "fmt:check": "cargo fmt --all -- --check",
     "check": "npm run fmt:check && npm run lint && npm run test",
-    "fix": "cargo fmt --all && cargo clippy --all-targets --all-features --fix"
+    "fix": "cargo fmt --all && cargo clippy --all-targets --all-features --fix",
+    "version:patch": "node scripts/bump-version.js patch",
+    "version:minor": "node scripts/bump-version.js minor",
+    "version:major": "node scripts/bump-version.js major",
+    "version:set": "node scripts/bump-version.js set",
+    "release": "npm run check && npm run version:patch",
+    "release:minor": "npm run check && npm run version:minor",
+    "release:major": "npm run check && npm run version:major"
   },
   "repository": {
     "type": "git",
