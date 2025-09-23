@@ -312,6 +312,30 @@ async fn post_text_propagates_api_failure() {
 }
 
 #[tokio::test]
+async fn post_text_non_json_response_surfaces_parser_error() {
+    Lazy::force(&INIT_TRACING);
+
+    let routes = axum::Router::new().route(
+        "/gewe/v2/api/message/postText",
+        axum::routing::post(|| async move { (StatusCode::OK, "<!DOCTYPE html>oops") }),
+    );
+
+    with_client(routes, None, |client| async move {
+        match client
+            .post_text("非 JSON 响应")
+            .await
+            .expect_err("non-json should fail")
+        {
+            GeweNoticeError::JsonError(err) => {
+                assert!(err.is_syntax(), "解析错误应被标记为语法错误: {err}");
+            }
+            other => panic!("unexpected error {other:?}"),
+        }
+    })
+    .await;
+}
+
+#[tokio::test]
 async fn post_text_member_lookup_failure_skips_mentions() {
     static INVOCATIONS: Lazy<Arc<Mutex<Vec<serde_json::Value>>>> =
         Lazy::new(|| Arc::new(Mutex::new(Vec::new())));

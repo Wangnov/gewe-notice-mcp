@@ -1,4 +1,4 @@
-use reqwest::{header, Client};
+use reqwest::{header, Client, StatusCode};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use tracing::{error, info, warn};
@@ -70,6 +70,77 @@ struct PostTextData {
     code: Option<String>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum FailureCode {
+    NotInGroup,
+    ChatroomMissing,
+    PermissionDenied,
+    Unknown(String),
+}
+
+impl From<&str> for FailureCode {
+    fn from(value: &str) -> Self {
+        match value {
+            "-219" => Self::NotInGroup,
+            "-104" => Self::ChatroomMissing,
+            "-2" => Self::PermissionDenied,
+            other => Self::Unknown(other.to_string()),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ApiRet {
+    Success,
+    Failure(i32),
+}
+
+impl ApiRet {
+    fn is_success(self) -> bool {
+        matches!(self, Self::Success)
+    }
+
+    fn code(self) -> i32 {
+        match self {
+            Self::Success => 200,
+            Self::Failure(code) => code,
+        }
+    }
+}
+
+impl From<i32> for ApiRet {
+    fn from(value: i32) -> Self {
+        if value == 200 {
+            Self::Success
+        } else {
+            Self::Failure(value)
+        }
+    }
+}
+
+impl PostTextResponse {
+    fn ret_status(&self) -> ApiRet {
+        ApiRet::from(self.ret)
+    }
+
+    fn is_success(&self) -> bool {
+        self.ret_status().is_success() && !self.msg.contains("失败")
+    }
+
+    fn failure_code(&self) -> Option<FailureCode> {
+        self.data
+            .as_ref()
+            .and_then(|data| data.code.as_deref())
+            .map(FailureCode::from)
+    }
+}
+
+struct PostTextCall {
+    status: StatusCode,
+    body: String,
+    response: PostTextResponse,
+}
+
 #[derive(Clone)]
 pub struct GeweApiClient {
     client: Client,
@@ -126,7 +197,7 @@ impl GeweApiClient {
             }
         } else {
             let status = response.status();
-            let text = response.text().await.unwrap_or_default();
+            let text = response.text().await?;
             error!("在线状态检查失败，HTTP 状态码: {}", status);
             error!("   - 响应内容: {}", text);
             Err(GeweNoticeError::ApiError {
@@ -199,7 +270,7 @@ impl GeweApiClient {
             }
         } else {
             let status = response.status();
-            let text = response.text().await.unwrap_or_default();
+            let text = response.text().await?;
             error!("获取群成员列表失败，状态码: {}, 响应: {}", status, text);
             Err(GeweNoticeError::ApiError {
                 code: status.as_u16() as i32,
@@ -260,33 +331,20 @@ impl GeweApiClient {
         let request = PostTextRequest {
             app_id: self.config.app_id.clone(),
             to_wxid: self.config.wxid.clone(),
-            content: final_content.clone(),
-            ats: ats_payload.clone(),
+            content: final_content,
+            ats: ats_payload,
         };
 
-        let response = self
-            .client
-            .post(&url)
-            .header("X-GEWE-TOKEN", &self.config.token)
-            .header(header::CONTENT_TYPE, "application/json")
-            .json(&request)
-            .send()
-            .await?;
-
-        let mut status = response.status();
-        let mut response_text = response.text().await.unwrap_or_default();
-        let mut response_data = serde_json::from_str::<PostTextResponse>(&response_text).ok();
+        let mut call = self.execute_post_text(&url, &request).await?;
+        let mut ret_status = call.response.ret_status();
+        let mut failure_code = call.response.failure_code();
 
         let should_retry_at_all = self.config.is_chatroom()
             && is_at_all
-            && response_data.as_ref().is_some_and(|data| {
-                data.ret == 500
-                    && data
-                        .data
-                        .as_ref()
-                        .and_then(|d| d.code.as_ref())
-                        .is_some_and(|code| code == "-2")
-            });
+            && matches!(
+                (ret_status, failure_code.as_ref()),
+                (ApiRet::Failure(500), Some(FailureCode::PermissionDenied))
+            );
 
         if should_retry_at_all {
             warn!("警告: @ 全体成员失败，无权限，将尝试不 @ 全体成员重试。");
@@ -295,58 +353,68 @@ impl GeweApiClient {
             retry_request.content = content.to_string();
             retry_request.ats = None;
 
-            let retry_response = self
-                .client
-                .post(&url)
-                .header("X-GEWE-TOKEN", &self.config.token)
-                .header(header::CONTENT_TYPE, "application/json")
-                .json(&retry_request)
-                .send()
-                .await?;
-
-            status = retry_response.status();
-            response_text = retry_response.text().await.unwrap_or_default();
-            response_data = serde_json::from_str::<PostTextResponse>(&response_text).ok();
+            call = self.execute_post_text(&url, &retry_request).await?;
+            ret_status = call.response.ret_status();
+            failure_code = call.response.failure_code();
         }
 
-        if let Some(ref data) = response_data {
-            if status.is_success() && data.ret == 200 && !data.msg.contains("失败") {
-                info!("通知发送成功");
-                return Ok(());
+        if call.status.is_success() && call.response.is_success() {
+            info!("通知发送成功");
+            return Ok(());
+        }
+
+        let error_message = match failure_code.as_ref() {
+            Some(FailureCode::NotInGroup) => "你已不在该群内".to_string(),
+            Some(FailureCode::ChatroomMissing) => "该群聊不存在".to_string(),
+            Some(FailureCode::PermissionDenied) if !self.config.is_chatroom() => {
+                "对方不是你的好友或该微信用户不存在".to_string()
             }
+            Some(FailureCode::PermissionDenied) => {
+                "操作无权限（如@非好友）或遇到未知群聊错误".to_string()
+            }
+            Some(FailureCode::Unknown(raw)) => {
+                format!("接口返回未知错误码 {}: {}", raw, call.response.msg)
+            }
+            None => call.response.msg.clone(),
+        };
 
-            let error_code = data
-                .data
-                .as_ref()
-                .and_then(|d| d.code.as_ref())
-                .map(|s| s.as_str())
-                .unwrap_or("");
-
-            let error_message = match error_code {
-                "-219" => "你已不在该群内",
-                "-104" => "该群聊不存在",
-                "-2" if !self.config.is_chatroom() => "对方不是你的好友或该微信用户不存在",
-                "-2" => "操作无权限（如@非好友）或遇到未知群聊错误",
-                _ => &data.msg,
-            };
-
-            error!(
-                "通知发送失败: {} 原始响应: {}",
-                error_message, response_text
-            );
-            Err(GeweNoticeError::ApiError {
-                code: data.ret,
-                message: error_message.to_string(),
-            })
+        error!("通知发送失败: {} 原始响应: {}", error_message, call.body);
+        let api_code = if matches!(ret_status, ApiRet::Success) {
+            call.status.as_u16() as i32
         } else {
-            error!(
-                "通知发送失败，HTTP 状态码: {} 原始响应: {}",
-                status, response_text
-            );
-            Err(GeweNoticeError::ApiError {
-                code: status.as_u16() as i32,
-                message: response_text,
-            })
-        }
+            ret_status.code()
+        };
+
+        Err(GeweNoticeError::ApiError {
+            code: api_code,
+            message: error_message,
+        })
+    }
+}
+
+impl GeweApiClient {
+    async fn execute_post_text(
+        &self,
+        url: &str,
+        request: &PostTextRequest,
+    ) -> Result<PostTextCall> {
+        let response = self
+            .client
+            .post(url)
+            .header("X-GEWE-TOKEN", &self.config.token)
+            .header(header::CONTENT_TYPE, "application/json")
+            .json(request)
+            .send()
+            .await?;
+
+        let status = response.status();
+        let body = response.text().await?;
+        let parsed = serde_json::from_str::<PostTextResponse>(&body)?;
+
+        Ok(PostTextCall {
+            status,
+            body,
+            response: parsed,
+        })
     }
 }
