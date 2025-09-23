@@ -1,6 +1,99 @@
-use crate::errors::{GeweNoticeError, Result};
+use crate::errors::{ConfigValidationError, Result, TokenValidationError, WxIdValidationError};
 use clap::Parser;
+use std::fmt;
 use uuid::Uuid;
+
+#[derive(Debug, Clone)]
+pub struct ValidatedToken(Uuid);
+
+impl ValidatedToken {
+    pub fn new(s: &str) -> Result<Self> {
+        Uuid::parse_str(s).map(ValidatedToken).map_err(|e| {
+            ConfigValidationError::InvalidToken {
+                reason: TokenValidationError::ParseError(e),
+            }
+            .into()
+        })
+    }
+
+    pub fn as_str(&self) -> String {
+        self.0.to_string()
+    }
+}
+
+impl fmt::Display for ValidatedToken {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct AppId(String);
+
+impl AppId {
+    pub fn new(s: String) -> Result<Self> {
+        if !s.starts_with("wx_") {
+            return Err(ConfigValidationError::InvalidAppId { value: s }.into());
+        }
+        Ok(Self(s))
+    }
+
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+impl fmt::Display for AppId {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct WxId(String);
+
+impl WxId {
+    pub fn new(s: String) -> Result<Self> {
+        if s.is_empty() {
+            return Err(ConfigValidationError::InvalidWxId {
+                reason: WxIdValidationError::Empty,
+            }
+            .into());
+        }
+
+        // "all" 是特殊的@全员标识符
+        if s.eq_ignore_ascii_case("all") {
+            return Ok(Self("all".to_string()));
+        }
+
+        if s.contains("@chatroom") && !s.ends_with("@chatroom") {
+            return Err(ConfigValidationError::InvalidWxId {
+                reason: WxIdValidationError::InvalidChatroomFormat,
+            }
+            .into());
+        }
+
+        Ok(Self(s))
+    }
+
+    pub fn is_chatroom(&self) -> bool {
+        self.0.contains("@chatroom")
+    }
+
+    pub fn is_all(&self) -> bool {
+        self.0 == "all"
+    }
+
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+impl fmt::Display for WxId {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
 
 #[derive(Debug, Clone, Parser)]
 #[clap(
@@ -8,7 +101,7 @@ use uuid::Uuid;
     about = "一个通过微信机器人发送AI任务状态通知的轻量级工具",
     version
 )]
-pub struct Config {
+pub struct RawConfig {
     #[clap(
         long,
         env = "GEWE_NOTICE_BASE_URL",
@@ -35,37 +128,55 @@ pub struct Config {
     pub at_list: Option<Vec<String>>,
 }
 
+#[derive(Debug, Clone)]
+pub struct Config {
+    pub base_url: String,
+    pub token: ValidatedToken,
+    pub app_id: AppId,
+    pub wxid: WxId,
+    pub at_list: Option<Vec<WxId>>,
+}
+
 impl Config {
-    pub fn validate(&self) -> Result<()> {
-        Uuid::parse_str(&self.token).map_err(|_| {
-            GeweNoticeError::UuidError(
-                "GEWE_NOTICE_TOKEN 格式无效，应该是一个有效的 UUID".to_string(),
-            )
-        })?;
+    pub fn parse() -> Result<Self> {
+        let raw = RawConfig::parse();
+        Self::from_raw(raw)
+    }
 
-        if !self.app_id.starts_with("wx_") {
-            return Err(GeweNoticeError::ConfigError(
-                "GEWE_NOTICE_APP_ID 格式无效，应该以 'wx_' 开头".to_string(),
-            ));
-        }
+    pub fn from_raw(raw: RawConfig) -> Result<Self> {
+        let token = ValidatedToken::new(&raw.token)?;
+        let app_id = AppId::new(raw.app_id)?;
+        let wxid = WxId::new(raw.wxid)?;
 
-        if self.wxid.is_empty() {
-            return Err(GeweNoticeError::ConfigError(
-                "GEWE_NOTICE_WXID 不能为空".to_string(),
-            ));
-        }
+        let at_list = match raw.at_list {
+            Some(list) => {
+                let mut validated = Vec::new();
+                for id in list {
+                    let trimmed = id.trim();
+                    if !trimmed.is_empty() {
+                        validated.push(WxId::new(trimmed.to_string())?);
+                    }
+                }
+                if validated.is_empty() {
+                    None
+                } else {
+                    Some(validated)
+                }
+            }
+            None => None,
+        };
 
-        if self.wxid.contains("@chatroom") && !self.wxid.ends_with("@chatroom") {
-            return Err(GeweNoticeError::ConfigError(
-                "GEWE_NOTICE_WXID 格式无效，群聊ID应该以 '@chatroom' 结尾".to_string(),
-            ));
-        }
-
-        Ok(())
+        Ok(Self {
+            base_url: raw.base_url,
+            token,
+            app_id,
+            wxid,
+            at_list,
+        })
     }
 
     pub fn is_chatroom(&self) -> bool {
-        self.wxid.contains("@chatroom")
+        self.wxid.is_chatroom()
     }
 
     pub fn redact(&self, value: &str, show_first: usize, show_last: usize) -> String {
@@ -81,34 +192,30 @@ impl Config {
     }
 
     pub fn normalized_at_list(&self) -> Option<Vec<String>> {
-        let raw = self.at_list.as_ref()?;
-        let cleaned: Vec<String> = raw
-            .iter()
-            .map(|item| item.trim())
-            .filter(|item| !item.is_empty())
-            .map(|item| {
-                if item.eq_ignore_ascii_case("all") {
-                    "all".to_string()
-                } else {
-                    item.to_string()
-                }
-            })
-            .collect();
+        self.at_list
+            .as_ref()
+            .map(|list| list.iter().map(|wxid| wxid.as_str().to_string()).collect())
+    }
 
-        if cleaned.is_empty() {
-            return None;
-        }
+    pub fn token_str(&self) -> String {
+        self.token.as_str()
+    }
 
-        Some(cleaned)
+    pub fn app_id_str(&self) -> &str {
+        self.app_id.as_str()
+    }
+
+    pub fn wxid_str(&self) -> &str {
+        self.wxid.as_str()
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::Config;
+    use super::*;
 
-    fn base_config() -> Config {
-        Config {
+    fn base_raw_config() -> RawConfig {
+        RawConfig {
             base_url: "https://example.com".into(),
             token: "00000000-0000-0000-0000-000000000000".into(),
             app_id: "wx_app".into(),
@@ -119,25 +226,64 @@ mod tests {
 
     #[test]
     fn normalized_handles_none() {
-        let config = base_config();
+        let raw = base_raw_config();
+        let config = Config::from_raw(raw).expect("valid config");
         assert!(config.normalized_at_list().is_none());
     }
 
     #[test]
     fn normalized_trims_and_filters_empty_entries() {
-        let mut config = base_config();
-        config.at_list = Some(vec![" wxid_1 ".into(), " ".into(), "wxid_2".into()]);
+        let mut raw = base_raw_config();
+        raw.at_list = Some(vec![" wxid_1 ".into(), " ".into(), "wxid_2".into()]);
 
+        let config = Config::from_raw(raw).expect("valid config");
         let result = config.normalized_at_list().expect("normalized list");
         assert_eq!(result, vec!["wxid_1".to_string(), "wxid_2".to_string()]);
     }
 
     #[test]
     fn normalized_handles_all_case_insensitively() {
-        let mut config = base_config();
-        config.at_list = Some(vec![" ALL ".into()]);
+        let mut raw = base_raw_config();
+        raw.at_list = Some(vec![" ALL ".into()]);
 
+        let config = Config::from_raw(raw).expect("valid config");
         let result = config.normalized_at_list().expect("all entry");
         assert_eq!(result, vec!["all".to_string()]);
+    }
+
+    #[test]
+    fn test_invalid_token() {
+        let mut raw = base_raw_config();
+        raw.token = "not-a-uuid".into();
+
+        let result = Config::from_raw(raw);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_invalid_app_id() {
+        let mut raw = base_raw_config();
+        raw.app_id = "invalid_app_id".into();
+
+        let result = Config::from_raw(raw);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_empty_wxid() {
+        let mut raw = base_raw_config();
+        raw.wxid = "".into();
+
+        let result = Config::from_raw(raw);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_invalid_chatroom_format() {
+        let mut raw = base_raw_config();
+        raw.wxid = "something@chatroommore".into();
+
+        let result = Config::from_raw(raw);
+        assert!(result.is_err());
     }
 }
