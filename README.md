@@ -3,7 +3,7 @@
 <p align="center">
   <img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="MIT License"/>
   <img src="https://img.shields.io/github/v/release/wangnov/gewe-notice-mcp?label=release" alt="Release"/>
-  <img src="https://img.shields.io/npm/v/gewe-notice.svg" alt="npm Version"/>
+  <img src="https://img.shields.io/npm/v/gewe-notice-mcp.svg" alt="npm Version"/>
   <img src="https://img.shields.io/badge/rust-1.75%2B-orange.svg" alt="Rust"/>
   <img src="https://img.shields.io/badge/platform-macOS%20%7C%20Linux%20%7C%20Windows-success.svg" alt="Platforms"/>
 </p>
