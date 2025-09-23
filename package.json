@@ -4,7 +4,7 @@
   "description": "一个轻量级的 MCP 服务器，用于通过gewe微信机器人发送 AI 任务状态通知",
   "main": "index.js",
   "bin": {
-    "gewe-notice-mcp": "./bin/gewe-notice-mcp"
+    "gewe-notice-mcp": "./index.js"
   },
   "scripts": {
     "postinstall": "node scripts/install.js",
@@ -35,7 +35,6 @@
   },
   "homepage": "https://github.com/wangnov/gewe-notice-mcp#readme",
   "files": [
-    "bin/",
     "scripts/",
     "index.js",
     "README.md"
