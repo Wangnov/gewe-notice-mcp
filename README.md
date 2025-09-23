@@ -8,7 +8,7 @@
   <img src="https://img.shields.io/badge/platform-macOS%20%7C%20Linux%20%7C%20Windows-success.svg" alt="Platforms"/>
 </p>
 
-> 通过 Gewe 微信机器人推送任务通知的 MCP 服务器，使用 Rust 构建。
+> 通过 [Gewe API](https://www.geweapi.com/) 提供的微信机器人推送任务通知的 MCP 服务器，使用 Rust 构建。
 
 ---
 
@@ -167,6 +167,22 @@ gewe-notice-mcp.exe --version
 
 ---
 
+## ⚙️ 前置条件
+
+在开始之前，您需要从您的 Gewe API 管理后台的 [微信管理页面](https://manager.geweapi.com/#/account/wechat) 中获取以下信息：
+
+0. **Base_Url**: 默认无需配置，已设为 `http://api.geweapi.com` ，如果 Gewe 通知您 Base_Url 发生变动，则可通过管理后台的 [用户主页](https://manager.geweapi.com/index#/account/index) - 开通信息 查看 `API接口域名` 。如果你使用私有部署的Gewe API服务，则设为对应的服务器域名或IP地址。
+1.  **API Token**: 用于认证的 `X-GEWE-TOKEN`。
+2.  **App ID**: 您的微信机器人实例的 `appId`。
+3.  **接收者 WXID**: 您希望接收通知的个人微信ID (`wxid_...`) 或群聊ID (`..._chatroom`)。
+4.  **(可选) @对象的 WXID**: 如果您想在群聊中 `@` 特定的人，需要预先知道他们的 `wxid` 或者直接输入 `all` 以@所有人（需要管理员或群主权限）。
+
+>关于如何获取他人或群聊的wxid，需要您自行测试，例如：启动一个http服务，用于接收 Gewe API 的回调消息。然后在官方微信客户端中发送消息（或从群聊中发送）给您的微信机器人，在回调消息结构体中找到对应的wxid。
+>
+>又例如：您可以调用 Gewe API 的 `搜索好友` 接口来搜索您想找到的机器人的好友 wxid ，调用 Gewe API 的 `获取通讯录列表` 接口来列出您的全部通讯录信息，从中找到想要获取的好友或群的 wxid 等。
+
+---
+
 ## ⚙️ 环境变量
 
 | 变量名                 | 必填 | 说明                                                                 |
@@ -177,15 +193,7 @@ gewe-notice-mcp.exe --version
 | `GEWE_NOTICE_WXID`     | ✅   | 接收者 WXID；群聊需以 `@chatroom` 结尾                               |
 | `GEWE_NOTICE_AT_LIST`  | 否   | 逗号分隔的 WXID 列表或 `all`，用于 @ 指定成员或全体                   |
 
-### 如何获取 WXID
-
-1. **通过回调消息**：启动 HTTP 服务接收 Gewe API 回调，从消息结构中获取 wxid
-2. **通过 API 接口**：
-   - 调用"搜索好友"接口查找特定好友的 wxid
-   - 调用"获取通讯录列表"接口列出全部联系人信息
-3. **通过群聊消息**：让目标用户在群内发言，从回调消息中提取其 wxid
-
-验证命令（二进制方式）：
+### 验证命令（二进制方式）
 
 ```bash
 GEWE_NOTICE_TOKEN=... \
@@ -230,7 +238,80 @@ npx -y gewe-notice
 
 ## 🖥️ MCP 客户端配置指南
 
-以下示例分别提供“本地二进制”（推荐）与“npx 兼容”两种写法。请将 App ID、Token、WXID 等替换为真实值。
+### 配置示例
+
+<details>
+<summary>点击展开查看四种不同场景的配置示例</summary>
+
+#### 1. 发送给个人
+
+```json
+"gewe-notice": {
+  "command": "/path/to/gewe-notice-mcp",
+  "args": [],
+  "env": {
+    "GEWE_NOTICE_TOKEN": "YOUR_GEWE_TOKEN",
+    "GEWE_NOTICE_APP_ID": "YOUR_BOT_APP_ID",
+    "GEWE_NOTICE_WXID": "wxid_xxxxxxxxxxxxx"
+  }
+}
+```
+
+#### 2. 发送到群聊（不@任何人）
+
+```json
+"gewe-notice": {
+  "command": "/path/to/gewe-notice-mcp",
+  "args": [],
+  "env": {
+    "GEWE_NOTICE_TOKEN": "YOUR_GEWE_TOKEN",
+    "GEWE_NOTICE_APP_ID": "YOUR_BOT_APP_ID",
+    "GEWE_NOTICE_WXID": "xxxxxxxxxx@chatroom"
+  }
+}
+```
+
+#### 3. 发送到群聊并@所有人
+
+```json
+"gewe-notice": {
+  "command": "/path/to/gewe-notice-mcp",
+  "args": [],
+  "env": {
+    "GEWE_NOTICE_TOKEN": "YOUR_GEWE_TOKEN",
+    "GEWE_NOTICE_APP_ID": "YOUR_BOT_APP_ID",
+    "GEWE_NOTICE_WXID": "xxxxxxxxxx@chatroom",
+    "GEWE_NOTICE_AT_LIST": "all"
+  }
+}
+```
+
+#### 4. 发送到群聊并@特定成员
+
+环境变量 `GEWE_NOTICE_AT_LIST` 接受一个用**逗号**分隔的 `wxid` 字符串。
+
+```json
+"gewe-notice": {
+  "command": "/path/to/gewe-notice-mcp",
+  "args": [],
+  "env": {
+    "GEWE_NOTICE_TOKEN": "YOUR_GEWE_TOKEN",
+    "GEWE_NOTICE_APP_ID": "YOUR_BOT_APP_ID",
+    "GEWE_NOTICE_WXID": "xxxxxxxxxx@chatroom",
+    "GEWE_NOTICE_AT_LIST": "wxid_aaaaaaaa,wxid_bbbbbbbb"
+  }
+}
+```
+
+>注：对于二进制方式，使用 `/path/to/gewe-notice-mcp` 指向实际的二进制文件路径。对于 npx 方式，将 `command` 改为 `"npx"`，`args` 改为 `["-y", "gewe-notice-mcp"]`。
+
+</details>
+
+配置完成后，您的 AI IDE 或 AI CLI 会在启动时自动运行 `gewe-notice` 服务器。
+
+### 各客户端具体配置
+
+以下示例分别提供"本地二进制"（推荐）与"npx 兼容"两种写法。请将 App ID、Token、WXID 等替换为真实值。
 
 <details>
 <summary><b>Cursor</b></summary>
