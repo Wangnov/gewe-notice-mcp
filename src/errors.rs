@@ -11,6 +11,18 @@ pub enum ConfigValidationError {
 
     #[error("WxId格式无效: {reason}")]
     InvalidWxId { reason: WxIdValidationError },
+
+    #[error("上传模式无效: {value}")]
+    InvalidUploadMode { value: String },
+
+    #[error("上传配置缺少字段: {field}")]
+    MissingUploadField { field: &'static str },
+
+    #[error("上传配置冲突: {reason}")]
+    ConflictingUploadConfig { reason: String },
+
+    #[error("URL 无效: {value}")]
+    InvalidUrl { value: String },
 }
 
 #[derive(Error, Debug, Clone)]
@@ -61,7 +73,6 @@ impl From<reqwest::Error> for NetworkError {
         } else if err.is_connect() {
             NetworkError::ConnectionRefused
         } else if let Some(url) = err.url() {
-            // DNS 解析失败通常包含在连接错误中，但我们可以通过错误消息判断
             let error_str = err.to_string();
             if error_str.contains("dns") || error_str.contains("resolve") {
                 NetworkError::DnsResolution {

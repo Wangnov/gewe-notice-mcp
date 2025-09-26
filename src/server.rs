@@ -8,21 +8,27 @@ use rmcp::{
     },
     service::{RequestContext, RoleServer},
 };
-use serde_json::Value;
+use serde_json::{json, Value};
 use std::future::Future;
 use std::sync::{
     atomic::{AtomicU8, Ordering},
     Arc,
 };
+use std::time::Duration;
 #[cfg(test)]
 use tokio::sync::Mutex;
 use tokio::sync::RwLock;
 
+use base64::engine::general_purpose::STANDARD;
+use base64::Engine;
+
 use crate::gewe_api::GeweApiClient;
+use crate::uploader::{DynUploader, UploadRequest};
 
 #[derive(Clone)]
 pub struct GeweNoticeServer {
     api_client: Arc<GeweApiClient>,
+    file_uploader: Option<DynUploader>,
     peer: Arc<RwLock<Option<rmcp::service::Peer<RoleServer>>>>,
     min_log_level: Arc<AtomicU8>,
     #[cfg(test)]
@@ -30,14 +36,19 @@ pub struct GeweNoticeServer {
 }
 
 impl GeweNoticeServer {
-    pub fn new(api_client: GeweApiClient) -> Self {
+    pub fn new(api_client: GeweApiClient, file_uploader: Option<DynUploader>) -> Self {
         Self {
             api_client: Arc::new(api_client),
+            file_uploader,
             peer: Arc::new(RwLock::new(None)),
             min_log_level: Arc::new(AtomicU8::new(Self::level_value(LoggingLevel::Info))),
             #[cfg(test)]
             log_tap: Arc::new(Mutex::new(Vec::new())),
         }
+    }
+
+    fn has_file_uploader(&self) -> bool {
+        self.file_uploader.is_some()
     }
 
     fn spawn_online_check(&self) {
@@ -76,9 +87,11 @@ impl GeweNoticeServer {
     #[cfg(test)]
     pub fn with_log_tap(
         api_client: GeweApiClient,
+        file_uploader: Option<DynUploader>,
     ) -> (Self, Arc<Mutex<Vec<LoggingMessageNotificationParam>>>) {
         let server = Self {
             api_client: Arc::new(api_client),
+            file_uploader,
             peer: Arc::new(RwLock::new(None)),
             min_log_level: Arc::new(AtomicU8::new(Self::level_value(LoggingLevel::Info))),
             log_tap: Arc::new(Mutex::new(Vec::new())),
@@ -205,6 +218,239 @@ impl GeweNoticeServer {
             }
         }
     }
+
+    async fn handle_post_file(
+        &self,
+        params: serde_json::Value,
+    ) -> Result<CallToolResult, ErrorData> {
+        let uploader = self
+            .file_uploader
+            .as_ref()
+            .cloned()
+            .ok_or_else(ErrorData::method_not_found::<CallToolRequestMethod>)?;
+
+        let file_name = params
+            .get("file_name")
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .ok_or_else(|| ErrorData::invalid_params("file_name 参数必须为非空字符串", None))?;
+
+        let content_base64 = params
+            .get("content_base64")
+            .and_then(Value::as_str)
+            .ok_or_else(|| ErrorData::invalid_params("content_base64 参数缺失", None))?;
+
+        let bytes = STANDARD
+            .decode(content_base64)
+            .map_err(|_| ErrorData::invalid_params("content_base64 不是有效的 Base64", None))?;
+
+        if bytes.is_empty() {
+            return Err(ErrorData::invalid_params("文件内容不能为空", None));
+        }
+
+        let content_type = params
+            .get("content_type")
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|s| !s.is_empty());
+
+        let ttl = match params.get("ttl_seconds") {
+            Some(Value::Number(num)) => {
+                let secs = num
+                    .as_u64()
+                    .ok_or_else(|| ErrorData::invalid_params("ttl_seconds 必须为非负整数", None))?;
+                Some(Duration::from_secs(secs))
+            }
+            Some(Value::Null) | None => None,
+            _ => {
+                return Err(ErrorData::invalid_params(
+                    "ttl_seconds 必须为非负整数",
+                    None,
+                ))
+            }
+        };
+
+        self.emit_log_message(
+            LoggingLevel::Info,
+            format!("收到文件上传请求: {}", file_name),
+        )
+        .await;
+
+        let upload_result = match uploader
+            .upload(UploadRequest {
+                file_name,
+                content: &bytes,
+                content_type,
+                ttl,
+            })
+            .await
+        {
+            Ok(result) => result,
+            Err(err) => {
+                self.emit_log_message(LoggingLevel::Error, format!("上传文件到存储失败: {}", err))
+                    .await;
+                return Err(ErrorData::internal_error(
+                    format!("上传文件失败: {err}"),
+                    None,
+                ));
+            }
+        };
+
+        let gwe_result = match self
+            .api_client
+            .post_file(file_name, &upload_result.file_url)
+            .await
+        {
+            Ok(info) => info,
+            Err(err) => {
+                self.emit_log_message(
+                    LoggingLevel::Error,
+                    format!("调用 GeWe postFile 失败: {}", err),
+                )
+                .await;
+                return Err(ErrorData::internal_error(
+                    format!("调用 GeWe postFile 失败: {err}"),
+                    None,
+                ));
+            }
+        };
+
+        let summary = format!("文件已发送: {} -> {}", file_name, upload_result.file_url);
+        self.emit_log_message(LoggingLevel::Info, &summary).await;
+
+        let expires_at = upload_result
+            .expires_at
+            .and_then(|ts| ts.duration_since(std::time::UNIX_EPOCH).ok())
+            .map(|dur| dur.as_secs());
+
+        let structured = json!({
+            "file_name": file_name,
+            "file_url": upload_result.file_url,
+            "file_size": upload_result.size,
+            "expires_at": expires_at,
+            "message": {
+                "to_wxid": gwe_result.to_wxid,
+                "msg_id": gwe_result.msg_id,
+                "new_msg_id": gwe_result.new_msg_id,
+                "type": gwe_result.message_type,
+                "create_time": gwe_result.create_time,
+            }
+        });
+
+        Ok(CallToolResult {
+            content: vec![Content::text(summary)],
+            is_error: None,
+            meta: None,
+            structured_content: Some(structured),
+        })
+    }
+}
+
+fn build_post_text_tool() -> Tool {
+    let mut schema = serde_json::Map::new();
+    schema.insert("type".to_string(), serde_json::json!("object"));
+
+    let mut properties = serde_json::Map::new();
+    let mut content_prop = serde_json::Map::new();
+    content_prop.insert("type".to_string(), serde_json::json!("string"));
+    content_prop.insert(
+        "description".to_string(),
+        serde_json::json!("要发送的通知文本内容"),
+    );
+    properties.insert(
+        "content".to_string(),
+        serde_json::Value::Object(content_prop),
+    );
+
+    schema.insert(
+        "properties".to_string(),
+        serde_json::Value::Object(properties),
+    );
+    schema.insert("required".to_string(), serde_json::json!(["content"]));
+
+    Tool {
+        name: "post_text".into(),
+        title: Some("发送通知".into()),
+        description: Some(
+            "发送 AI 任务状态通知。Agent 应在任务完成或发生关键错误时调用此工具。".into(),
+        ),
+        input_schema: Arc::new(schema),
+        output_schema: None,
+        annotations: None,
+        icons: None,
+    }
+}
+
+fn build_post_file_tool() -> Tool {
+    let mut schema = serde_json::Map::new();
+    schema.insert("type".to_string(), serde_json::json!("object"));
+
+    let mut properties = serde_json::Map::new();
+
+    let mut name_prop = serde_json::Map::new();
+    name_prop.insert("type".to_string(), serde_json::json!("string"));
+    name_prop.insert(
+        "description".to_string(),
+        serde_json::json!("文件名，将在微信端展示"),
+    );
+    properties.insert(
+        "file_name".to_string(),
+        serde_json::Value::Object(name_prop),
+    );
+
+    let mut content_prop = serde_json::Map::new();
+    content_prop.insert("type".to_string(), serde_json::json!("string"));
+    content_prop.insert(
+        "description".to_string(),
+        serde_json::json!("文件内容的 Base64 编码"),
+    );
+    properties.insert(
+        "content_base64".to_string(),
+        serde_json::Value::Object(content_prop),
+    );
+
+    let mut mime_prop = serde_json::Map::new();
+    mime_prop.insert("type".to_string(), serde_json::json!("string"));
+    mime_prop.insert(
+        "description".to_string(),
+        serde_json::json!("可选的 MIME 类型"),
+    );
+    properties.insert(
+        "content_type".to_string(),
+        serde_json::Value::Object(mime_prop),
+    );
+
+    let mut ttl_prop = serde_json::Map::new();
+    ttl_prop.insert("type".to_string(), serde_json::json!("integer"));
+    ttl_prop.insert(
+        "description".to_string(),
+        serde_json::json!("可选的下载有效期（秒）"),
+    );
+    ttl_prop.insert("minimum".to_string(), serde_json::json!(0));
+    properties.insert(
+        "ttl_seconds".to_string(),
+        serde_json::Value::Object(ttl_prop),
+    );
+
+    schema.insert(
+        "properties".to_string(),
+        serde_json::Value::Object(properties),
+    );
+    schema.insert(
+        "required".to_string(),
+        serde_json::json!(["file_name", "content_base64"]),
+    );
+
+    Tool {
+        name: "post_file".into(),
+        title: Some("发送文件".into()),
+        description: Some("上传文件并通过微信机器人发送".into()),
+        input_schema: Arc::new(schema),
+        output_schema: None,
+        annotations: None,
+        icons: None,
+    }
 }
 
 impl ServerHandler for GeweNoticeServer {
@@ -276,40 +522,10 @@ impl ServerHandler for GeweNoticeServer {
         _request: Option<PaginatedRequestParam>,
         _context: rmcp::service::RequestContext<rmcp::service::RoleServer>,
     ) -> Result<ListToolsResult, ErrorData> {
-        let tools = vec![Tool {
-            name: "post_text".into(),
-            title: Some("发送通知".into()),
-            description: Some(
-                "发送 AI 任务状态通知。Agent 应在任务完成或发生关键错误时调用此工具。".into(),
-            ),
-            input_schema: {
-                let mut schema = serde_json::Map::new();
-                schema.insert("type".to_string(), serde_json::json!("object"));
-
-                let mut properties = serde_json::Map::new();
-                let mut content_prop = serde_json::Map::new();
-                content_prop.insert("type".to_string(), serde_json::json!("string"));
-                content_prop.insert(
-                    "description".to_string(),
-                    serde_json::json!("要发送的通知文本内容"),
-                );
-                properties.insert(
-                    "content".to_string(),
-                    serde_json::Value::Object(content_prop),
-                );
-
-                schema.insert(
-                    "properties".to_string(),
-                    serde_json::Value::Object(properties),
-                );
-                schema.insert("required".to_string(), serde_json::json!(["content"]));
-
-                Arc::new(schema)
-            },
-            output_schema: None,
-            annotations: None,
-            icons: None,
-        }];
+        let mut tools = vec![build_post_text_tool()];
+        if self.has_file_uploader() {
+            tools.push(build_post_file_tool());
+        }
 
         Ok(ListToolsResult {
             tools,
@@ -328,6 +544,15 @@ impl ServerHandler for GeweNoticeServer {
                 self.handle_post_text(serde_json::Value::Object(arguments))
                     .await
             }
+            "post_file" => {
+                if self.has_file_uploader() {
+                    let arguments = request.arguments.unwrap_or_default();
+                    self.handle_post_file(serde_json::Value::Object(arguments))
+                        .await
+                } else {
+                    Err(ErrorData::method_not_found::<CallToolRequestMethod>())
+                }
+            }
             _ => Err(ErrorData::method_not_found::<CallToolRequestMethod>()),
         }
     }
@@ -336,7 +561,7 @@ impl ServerHandler for GeweNoticeServer {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::config::Config;
+    use crate::config::{Config, UploadConfig};
     use crate::gewe_api::GeweApiClient;
     use serde_json::Value;
 
@@ -349,6 +574,7 @@ mod tests {
             app_id: AppId::new("wx_test".to_string()).expect("valid app_id"),
             wxid: WxId::new("wxid_test".to_string()).expect("valid wxid"),
             at_list: None,
+            upload: UploadConfig::None,
         }
     }
 
@@ -356,7 +582,7 @@ mod tests {
     async fn log_respects_min_level_threshold() {
         let config = test_config();
         let client = GeweApiClient::new(config.clone()).expect("client");
-        let (server, tap) = GeweNoticeServer::with_log_tap(client);
+        let (server, tap) = GeweNoticeServer::with_log_tap(client, None);
 
         server
             .test_emit_log(LoggingLevel::Debug, "debug message")
@@ -378,7 +604,7 @@ mod tests {
     fn store_min_level_updates_atomic() {
         let config = test_config();
         let client = GeweApiClient::new(config.clone()).expect("client");
-        let server = GeweNoticeServer::new(client);
+        let server = GeweNoticeServer::new(client, None);
 
         assert_eq!(
             server.test_min_level_value(),

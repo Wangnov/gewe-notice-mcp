@@ -5,9 +5,10 @@ use rmcp::{
 use tracing::{error, info};
 use tracing_subscriber::EnvFilter;
 
-use gewe_notice_mcp::config::Config;
+use gewe_notice_mcp::config::{Config, UploadConfig};
 use gewe_notice_mcp::gewe_api::GeweApiClient;
 use gewe_notice_mcp::server::GeweNoticeServer;
+use gewe_notice_mcp::uploader;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
@@ -60,9 +61,30 @@ async fn main() -> anyhow::Result<()> {
             info!("   - At List:  {:?}", redacted_list);
         }
     }
+
+    let uploader = match uploader::build_uploader(&config.upload).await {
+        Ok(uploader) => uploader,
+        Err(error) => {
+            error!("初始化上传组件失败: {error}");
+            std::process::exit(1);
+        }
+    };
+
+    match &config.upload {
+        UploadConfig::None => info!("   - 文件上传: disabled"),
+        UploadConfig::Server(server_cfg) => {
+            info!("   - 文件上传: server -> {}", server_cfg.endpoint);
+        }
+        UploadConfig::S3(s3_cfg) => {
+            info!(
+                "   - 文件上传: s3 -> bucket={} region={}",
+                s3_cfg.bucket, s3_cfg.region
+            );
+        }
+    }
     info!("{}", "-".repeat(20));
 
-    let server = GeweNoticeServer::new(api_client);
+    let server = GeweNoticeServer::new(api_client, uploader);
     let (stdin, stdout) = stdio();
 
     info!("MCP 服务器已启动，等待连接...");

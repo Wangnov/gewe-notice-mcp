@@ -74,6 +74,45 @@ struct PostTextData {
     code: Option<String>,
 }
 
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct PostFileRequest {
+    app_id: String,
+    to_wxid: String,
+    file_url: String,
+    file_name: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct PostFileResponse {
+    ret: i32,
+    msg: String,
+    data: Option<PostFileData>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct PostFileData {
+    to_wxid: String,
+    create_time: i64,
+    msg_id: i64,
+    new_msg_id: i64,
+    #[serde(rename = "type")]
+    message_type: i32,
+}
+
+#[derive(Debug, Clone)]
+pub struct SentFileInfo {
+    pub to_wxid: String,
+    pub create_time: i64,
+    pub msg_id: i64,
+    pub new_msg_id: i64,
+    pub message_type: i32,
+    pub file_name: String,
+    pub file_url: String,
+}
+
 #[derive(Debug, Clone)]
 struct RetryPolicy {
     max_retries: u8,
@@ -144,6 +183,12 @@ struct PostTextCall {
     status: StatusCode,
     body: String,
     response: PostTextResponse,
+}
+
+struct PostFileCall {
+    status: StatusCode,
+    _body: String,
+    response: PostFileResponse,
 }
 
 #[derive(Clone)]
@@ -516,6 +561,86 @@ impl GeweApiClient {
         Ok(PostTextCall {
             status,
             body,
+            response: parsed,
+        })
+    }
+
+    pub async fn post_file(&self, file_name: &str, file_url: &str) -> Result<SentFileInfo> {
+        let url = format!("{}/gewe/v2/api/message/postFile", self.config.base_url);
+        let request = PostFileRequest {
+            app_id: self.config.app_id_str().to_string(),
+            to_wxid: self.config.wxid_str().to_string(),
+            file_url: file_url.to_string(),
+            file_name: file_name.to_string(),
+        };
+
+        let call = self.execute_post_file(&url, &request).await?;
+        let ret_status = ApiRet::from(call.response.ret);
+
+        if call.status.is_success() && ret_status.is_success() {
+            if let Some(data) = call.response.data {
+                return Ok(SentFileInfo {
+                    to_wxid: data.to_wxid,
+                    create_time: data.create_time,
+                    msg_id: data.msg_id,
+                    new_msg_id: data.new_msg_id,
+                    message_type: data.message_type,
+                    file_name: request.file_name,
+                    file_url: request.file_url,
+                });
+            }
+
+            return Err(ApiBusinessError::UnknownError {
+                code: ret_status.code(),
+                message: "响应缺少数据".into(),
+            }
+            .into());
+        }
+
+        let error = match ApiErrorCode::from_code(ret_status.code()) {
+            Some(code) => ApiBusinessError::KnownError { code },
+            None => ApiBusinessError::UnknownError {
+                code: ret_status.code(),
+                message: call.response.msg.clone(),
+            },
+        };
+
+        Err(error.into())
+    }
+
+    async fn execute_post_file(
+        &self,
+        url: &str,
+        request: &PostFileRequest,
+    ) -> Result<PostFileCall> {
+        let _permit = self
+            .semaphore
+            .acquire()
+            .await
+            .map_err(|_| NetworkError::ConnectionRefused)?;
+
+        let response = timeout(
+            self.request_timeout,
+            self.client
+                .post(url)
+                .header("X-GEWE-TOKEN", self.config.token_str())
+                .header(header::CONTENT_TYPE, "application/json")
+                .json(request)
+                .send(),
+        )
+        .await
+        .map_err(|_| NetworkError::Timeout {
+            duration: self.request_timeout,
+        })?
+        .map_err(NetworkError::from)?;
+
+        let status = response.status();
+        let body = response.text().await.map_err(NetworkError::from)?;
+        let parsed = serde_json::from_str::<PostFileResponse>(&body)?;
+
+        Ok(PostFileCall {
+            status,
+            _body: body,
             response: parsed,
         })
     }

@@ -6,7 +6,7 @@ use reqwest::StatusCode;
 use serde_json::json;
 use tokio::sync::Mutex;
 
-use gewe_notice_mcp::config::{AppId, Config, ValidatedToken, WxId};
+use gewe_notice_mcp::config::{AppId, Config, UploadConfig, ValidatedToken, WxId};
 use gewe_notice_mcp::errors::{ApiBusinessError, ApiErrorCode, GeweNoticeError};
 use gewe_notice_mcp::gewe_api::GeweApiClient;
 
@@ -61,6 +61,7 @@ fn base_config(base_url: String, at_list: Option<Vec<String>>) -> Config {
         app_id: AppId::new("wx_test_app".to_string()).expect("valid app_id"),
         wxid: WxId::new("wxid_target@chatroom".to_string()).expect("valid wxid"),
         at_list: at_list_wxids,
+        upload: UploadConfig::None,
     }
 }
 
