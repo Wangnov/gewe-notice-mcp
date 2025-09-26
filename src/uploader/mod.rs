@@ -1,4 +1,3 @@
-mod s3;
 mod server;
 
 use std::sync::Arc;
@@ -8,8 +7,11 @@ use async_trait::async_trait;
 
 use crate::config::UploadConfig;
 
-pub use s3::S3Uploader;
 pub use server::ServerUploader;
+#[cfg(feature = "upload-s3")]
+mod s3;
+#[cfg(feature = "upload-s3")]
+pub use s3::S3Uploader;
 
 #[derive(Debug, thiserror::Error)]
 pub enum UploadError {
@@ -48,9 +50,14 @@ pub async fn build_uploader(config: &UploadConfig) -> anyhow::Result<Option<DynU
             let uploader = ServerUploader::new(server_cfg.clone())?;
             Ok(Some(Arc::new(uploader)))
         }
+        #[cfg(feature = "upload-s3")]
         UploadConfig::S3(s3_cfg) => {
             let uploader = S3Uploader::new(s3_cfg.clone()).await?;
             Ok(Some(Arc::new(uploader)))
         }
+        #[cfg(not(feature = "upload-s3"))]
+        UploadConfig::S3(_) => Err(anyhow::anyhow!(
+            "当前构建未启用 upload-s3 特性，无法使用 S3 上传模式"
+        )),
     }
 }

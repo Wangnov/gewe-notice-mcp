@@ -12,6 +12,10 @@ keywords = ["mcp", "ai", "notification", "gewe"]
 name = "gewe-notice-mcp"
 path = "src/main.rs"
 
+[features]
+default = []
+upload-s3 = ["aws-config", "aws-sdk-s3"]
+
 [dependencies]
 # MCP Protocol
 rmcp = { version = "0.6", features = ["transport-io"] }
@@ -57,8 +61,8 @@ percent-encoding = "2"
 sanitize-filename = "0.6"
 
 # AWS (可选云存储实现)
-aws-config = { version = "1", default-features = false, features = ["rt-tokio", "behavior-version-latest"] }
-aws-sdk-s3 = { version = "1", default-features = false, features = ["rt-tokio"] }
+aws-config = { version = "1", default-features = false, features = ["rt-tokio", "behavior-version-latest"], optional = true }
+aws-sdk-s3 = { version = "1", default-features = false, features = ["rt-tokio"], optional = true }
 
 # Random number generation
 rand = "0.8"

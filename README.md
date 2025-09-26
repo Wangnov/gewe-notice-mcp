@@ -200,6 +200,8 @@ gewe-notice-mcp.exe --version
 | `GEWE_NOTICE_S3_PREFIX`        | 否         | 上传对象键的前缀，可选                                                      |
 | `GEWE_NOTICE_S3_ENDPOINT`      | 否         | 自定义 S3 Endpoint（兼容 MinIO、COS 等）                                   |
 
+> ⚠️ 开启 S3 模式前，请使用 `cargo build --release --features upload-s3`（或在对应命令后追加 `--features upload-s3`）重新构建二进制。
+
 ### 验证命令（二进制方式）
 
 ```bash
@@ -221,7 +223,7 @@ npx -y gewe-notice-mcp
 
 - 默认情况下 **不暴露** `post_file` 工具。
 - 配置 `GEWE_NOTICE_UPLOAD_MODE=server` 时，MCP 会将文件传给远端的 `gewe-notice-server`，由它生成公网下载链接。
-- 配置 `GEWE_NOTICE_UPLOAD_MODE=s3` 时，MCP 会直接调用 AWS S3（或兼容存储）上传并生成带过期时间的预签名下载链接。
+- 配置 `GEWE_NOTICE_UPLOAD_MODE=s3` 时，MCP 会直接调用 AWS S3（或兼容存储）上传并生成带过期时间的预签名下载链接（构建时需附加 `--features upload-s3`）。
 - 两种模式互斥，请勿同时设置 `server` 与 `s3` 相关环境变量。
 
 ---

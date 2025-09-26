@@ -493,66 +493,78 @@ impl UploadConfig {
                 }))
             }
             Some("s3") => {
-                if has_server_fields {
-                    return Err(ConfigValidationError::ConflictingUploadConfig {
-                        reason: "s3 模式下不应设置上传服务器相关环境变量".into(),
+                #[cfg(not(feature = "upload-s3"))]
+                {
+                    return Err(ConfigValidationError::InvalidUploadMode {
+                        value: "s3 (需要启用 upload-s3 特性)".into(),
                     });
                 }
 
-                let bucket_raw = s3_bucket.ok_or(ConfigValidationError::MissingUploadField {
-                    field: "GEWE_NOTICE_S3_BUCKET",
-                })?;
-                let bucket = bucket_raw.trim();
-                if bucket.is_empty() {
-                    return Err(ConfigValidationError::MissingUploadField {
-                        field: "GEWE_NOTICE_S3_BUCKET",
-                    });
-                }
-
-                let region_raw = s3_region.ok_or(ConfigValidationError::MissingUploadField {
-                    field: "GEWE_NOTICE_S3_REGION",
-                })?;
-                let region = region_raw.trim();
-                if region.is_empty() {
-                    return Err(ConfigValidationError::MissingUploadField {
-                        field: "GEWE_NOTICE_S3_REGION",
-                    });
-                }
-
-                let prefix = s3_prefix.and_then(|p| {
-                    let trimmed = p.trim();
-                    if trimmed.is_empty() {
-                        None
-                    } else {
-                        Some(trimmed.trim_matches('/').to_string())
+                #[cfg(feature = "upload-s3")]
+                {
+                    if has_server_fields {
+                        return Err(ConfigValidationError::ConflictingUploadConfig {
+                            reason: "s3 模式下不应设置上传服务器相关环境变量".into(),
+                        });
                     }
-                });
 
-                let endpoint = s3_endpoint.map(|e| {
-                    let trimmed = e.trim();
-                    if trimmed.is_empty() {
-                        return Ok(String::new());
+                    let bucket_raw =
+                        s3_bucket.ok_or(ConfigValidationError::MissingUploadField {
+                            field: "GEWE_NOTICE_S3_BUCKET",
+                        })?;
+                    let bucket = bucket_raw.trim();
+                    if bucket.is_empty() {
+                        return Err(ConfigValidationError::MissingUploadField {
+                            field: "GEWE_NOTICE_S3_BUCKET",
+                        });
                     }
-                    Url::parse(trimmed)
-                        .map(|_| trimmed.to_string())
-                        .map_err(|_| ConfigValidationError::InvalidUrl {
-                            value: trimmed.to_string(),
-                        })
-                });
 
-                let endpoint = match endpoint {
-                    Some(Ok(v)) if v.is_empty() => None,
-                    Some(Ok(v)) => Some(v),
-                    Some(Err(e)) => return Err(e),
-                    None => None,
-                };
+                    let region_raw =
+                        s3_region.ok_or(ConfigValidationError::MissingUploadField {
+                            field: "GEWE_NOTICE_S3_REGION",
+                        })?;
+                    let region = region_raw.trim();
+                    if region.is_empty() {
+                        return Err(ConfigValidationError::MissingUploadField {
+                            field: "GEWE_NOTICE_S3_REGION",
+                        });
+                    }
 
-                Ok(UploadConfig::S3(S3UploadConfig {
-                    bucket: bucket.to_string(),
-                    region: region.to_string(),
-                    prefix,
-                    endpoint,
-                }))
+                    let prefix = s3_prefix.and_then(|p| {
+                        let trimmed = p.trim();
+                        if trimmed.is_empty() {
+                            None
+                        } else {
+                            Some(trimmed.trim_matches('/').to_string())
+                        }
+                    });
+
+                    let endpoint = s3_endpoint.map(|e| {
+                        let trimmed = e.trim();
+                        if trimmed.is_empty() {
+                            return Ok(String::new());
+                        }
+                        Url::parse(trimmed)
+                            .map(|_| trimmed.to_string())
+                            .map_err(|_| ConfigValidationError::InvalidUrl {
+                                value: trimmed.to_string(),
+                            })
+                    });
+
+                    let endpoint = match endpoint {
+                        Some(Ok(v)) if v.is_empty() => None,
+                        Some(Ok(v)) => Some(v),
+                        Some(Err(e)) => return Err(e),
+                        None => None,
+                    };
+
+                    Ok(UploadConfig::S3(S3UploadConfig {
+                        bucket: bucket.to_string(),
+                        region: region.to_string(),
+                        prefix,
+                        endpoint,
+                    }))
+                }
             }
             Some(other) => Err(ConfigValidationError::InvalidUploadMode {
                 value: other.to_string(),

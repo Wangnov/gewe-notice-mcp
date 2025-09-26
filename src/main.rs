@@ -75,11 +75,16 @@ async fn main() -> anyhow::Result<()> {
         UploadConfig::Server(server_cfg) => {
             info!("   - 文件上传: server -> {}", server_cfg.endpoint);
         }
+        #[cfg(feature = "upload-s3")]
         UploadConfig::S3(s3_cfg) => {
             info!(
                 "   - 文件上传: s3 -> bucket={} region={}",
                 s3_cfg.bucket, s3_cfg.region
             );
+        }
+        #[cfg(not(feature = "upload-s3"))]
+        UploadConfig::S3(_) => {
+            info!("   - 文件上传: s3 (未启用 upload-s3 特性)");
         }
     }
     info!("{}", "-".repeat(20));
