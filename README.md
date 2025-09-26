@@ -191,7 +191,14 @@ gewe-notice-mcp.exe --version
 | `GEWE_NOTICE_TOKEN`    | ✅   | Gewe API Token（UUID）                                               |
 | `GEWE_NOTICE_APP_ID`   | ✅   | 微信机器人 App ID，须以 `wx_` 开头                                   |
 | `GEWE_NOTICE_WXID`     | ✅   | 接收者 WXID；群聊需以 `@chatroom` 结尾                               |
-| `GEWE_NOTICE_AT_LIST`  | 否   | 逗号分隔的 WXID 列表或 `all`，用于 @ 指定成员或全体                   |
+| `GEWE_NOTICE_AT_LIST`          | 否         | 逗号分隔的 WXID 列表或 `all`，用于 @ 指定成员或全体                   |
+| `GEWE_NOTICE_UPLOAD_MODE`      | 否         | 上传模式：`server` 使用自建上传服务，`s3` 直接写入 S3；未配置则禁用 `post_file` |
+| `GEWE_NOTICE_UPLOAD_SERVER_URL`| `server` 必填 | `gewe-notice-server` 的上传接口 URL，例如 `https://files.example.com/upload` |
+| `GEWE_NOTICE_UPLOAD_SERVER_API_KEY` | 否    | 调用上传服务器时附带的 API Key                                               |
+| `GEWE_NOTICE_S3_BUCKET`        | `s3` 必填  | S3 Bucket 名称                                                              |
+| `GEWE_NOTICE_S3_REGION`        | `s3` 必填  | S3 区域，例如 `ap-southeast-1`                                             |
+| `GEWE_NOTICE_S3_PREFIX`        | 否         | 上传对象键的前缀，可选                                                      |
+| `GEWE_NOTICE_S3_ENDPOINT`      | 否         | 自定义 S3 Endpoint（兼容 MinIO、COS 等）                                   |
 
 ### 验证命令（二进制方式）
 
@@ -208,6 +215,62 @@ GEWE_NOTICE_TOKEN=... \
 GEWE_NOTICE_APP_ID=wx_xxx \
 GEWE_NOTICE_WXID=wxid_xxx \
 npx -y gewe-notice-mcp
+```
+
+### 文件上传模式
+
+- 默认情况下 **不暴露** `post_file` 工具。
+- 配置 `GEWE_NOTICE_UPLOAD_MODE=server` 时，MCP 会将文件传给远端的 `gewe-notice-server`，由它生成公网下载链接。
+- 配置 `GEWE_NOTICE_UPLOAD_MODE=s3` 时，MCP 会直接调用 AWS S3（或兼容存储）上传并生成带过期时间的预签名下载链接。
+- 两种模式互斥，请勿同时设置 `server` 与 `s3` 相关环境变量。
+
+---
+
+## 🌐 `gewe-notice-server` 文件上传服务
+
+部署在服务器上的轻量级上传服务，默认将文件写入 `gewe_cached_files/` 目录，并提供 `GET /files/{id}/{filename}` 下载入口。
+
+### 运行示例
+
+```bash
+GEWE_SERVER_BIND=0.0.0.0:8989 \
+GEWE_SERVER_PUBLIC_BASE_URL=https://files.example.com \
+GEWE_SERVER_STORAGE_DIR=/var/lib/gewe-files \
+./gewe-notice-server
+```
+
+### 环境变量
+
+| 变量名                         | 默认值             | 说明                                                          |
+| ------------------------------ | ------------------ | ------------------------------------------------------------- |
+| `GEWE_SERVER_BIND`            | `127.0.0.1:8989`   | HTTP 监听地址                                                 |
+| `GEWE_SERVER_PUBLIC_BASE_URL` | (必填)             | 对外可访问的下载基址，例如 `https://files.example.com`       |
+| `GEWE_SERVER_STORAGE_DIR`     | `gewe_cached_files`| 文件缓存目录（相对路径会基于当前工作目录展开）               |
+| `GEWE_SERVER_MAX_BYTES`       | `20971520`         | 单文件大小上限（字节）                                        |
+| `GEWE_SERVER_DEFAULT_TTL`     | `300`              | 默认过期时间（秒）                                            |
+| `GEWE_SERVER_MIN_TTL`         | `60`               | 最小允许 TTL（秒），避免过短时间导致下载失败                 |
+| `GEWE_SERVER_CLEANUP_INTERVAL`| `60`               | 清理任务执行间隔（秒）                                        |
+
+上传接口为 `POST /upload`，请求体示例：
+
+```json
+{
+  "file_name": "report.pdf",
+  "content_base64": "...",
+  "content_type": "application/pdf",
+  "ttl_seconds": 300
+}
+```
+
+返回示例：
+
+```json
+{
+  "file_id": "f08fac30d0164c8ba126f4679791819e",
+  "file_url": "https://files.example.com/files/f08fac30d0164c8ba126f4679791819e/report.pdf",
+  "expires_at": 1758788354,
+  "size": 12345
+}
 ```
 
 ---
@@ -233,6 +296,26 @@ npx -y gewe-notice-mcp
 - 📊 **进度**: `📊 [Data Analysis] - 数据分析完成50%`
 
 您也可以在 Agent Rules 中自定义通知格式。
+
+---
+
+## 🛠️ MCP 工具: `post_file`
+
+当配置了上传模式后，会自动暴露 `post_file` 工具，实现 “上传文件 → 获取可公开访问的 URL → 调用 GeWe `postFile` 接口”。
+
+### 参数
+
+- `file_name` (string): 微信端展示的文件名
+- `content_base64` (string): 文件内容的 Base64 编码
+- `content_type` (string, 可选): MIME 类型，例如 `application/pdf`
+- `ttl_seconds` (number, 可选): 希望下载链接保持可用的时间（秒），未提供时使用上传服务默认 TTL
+
+### 返回值
+
+- 文本：`文件已发送: <file_name> -> <file_url>`
+- 结构化结果：包含 `file_url`、`file_size`、`expires_at` 等字段，以及 GeWe 返回的消息 ID 信息。
+
+> 若 `GEWE_NOTICE_UPLOAD_MODE` 未配置，则不会出现在工具列表中。
 
 ---
 
